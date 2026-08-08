@@ -13,6 +13,31 @@ interface AudioContextType {
   prototype: AudioContext;
 }
 
+interface SpeechRecognitionInstance {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: (event: {
+    results: {
+      length: number;
+      [key: number]: {
+        isFinal: boolean;
+        [key: number]: {
+          transcript: string;
+        };
+      };
+    };
+  }) => void;
+  onerror: (event: { error: string }) => void;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionWindow extends Window {
+  SpeechRecognition?: new () => SpeechRecognitionInstance;
+  webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
+}
+
 export default function RecordView() {
   const {
     selectedTopic,
@@ -30,6 +55,7 @@ export default function RecordView() {
   const [micBlocked, setMicBlocked] = useState(false);
   const [micStreaming, setMicStreaming] = useState(false);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [realtimeTranscript, setRealtimeTranscript] = useState<string>("");
 
   // Audio references
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -40,6 +66,7 @@ export default function RecordView() {
   const animationFrameRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordingStartTimeRef = useRef<number>(0);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   // Process and transmit recorded audio payload
   const processRecordedAudio = useCallback(async () => {
@@ -103,6 +130,14 @@ export default function RecordView() {
     }
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
       audioContextRef.current.close();
+    }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.error("Error stopping speech recognition:", e);
+      }
+      recognitionRef.current = null;
     }
   }, []);
 
@@ -240,6 +275,44 @@ export default function RecordView() {
         // Setup real-time visualizer canvas using Web Audio API
         setupVisualizer(stream);
 
+        // Initialize Speech Recognition if supported
+        const SpeechRecognitionClass = (window as unknown as SpeechRecognitionWindow).SpeechRecognition || 
+                                       (window as unknown as SpeechRecognitionWindow).webkitSpeechRecognition;
+        if (SpeechRecognitionClass) {
+          const recognition = new SpeechRecognitionClass();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          
+          const getLanguageCode = (lang: string) => {
+            const lower = lang.toLowerCase();
+            if (lower === "english") return "en-US";
+            if (lower === "spanish") return "es-ES";
+            if (lower === "french") return "fr-FR";
+            if (lower === "german") return "de-DE";
+            if (lower === "italian") return "it-IT";
+            if (lower === "japanese") return "ja-JP";
+            if (lower === "chinese") return "zh-CN";
+            return "en-US";
+          };
+          
+          recognition.lang = getLanguageCode(targetLanguage);
+
+          recognition.onresult = (event) => {
+            let completeTranscript = "";
+            for (let i = 0; i < event.results.length; i++) {
+              completeTranscript += event.results[i][0].transcript;
+            }
+            setRealtimeTranscript(completeTranscript);
+          };
+
+          recognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+          };
+
+          recognitionRef.current = recognition;
+          recognition.start();
+        }
+
       } catch (err) {
         console.error("Microphone access denied or error:", err);
         setMicBlocked(true);
@@ -249,6 +322,7 @@ export default function RecordView() {
     }
 
     if (isRecording) {
+      setRealtimeTranscript("");
       recordingStartTimeRef.current = Date.now(); // Set startTime even if mic is blocked for headless runs
       initAudio();
     }
@@ -256,7 +330,7 @@ export default function RecordView() {
     return () => {
       cleanupAudio();
     };
-  }, [isRecording, processRecordedAudio, setErrorMessage, cleanupAudio]);
+  }, [isRecording, processRecordedAudio, setErrorMessage, cleanupAudio, targetLanguage]);
 
   if (!selectedTopic) return null;
 
@@ -367,6 +441,25 @@ export default function RecordView() {
             )}
           </div>
         </div>
+
+        {/* Real-time speech transcription display */}
+        {realtimeTranscript && (
+          <div className="mb-8 p-5 bg-charcoal-900/50 border border-charcoal-700/40 rounded-2xl relative overflow-hidden backdrop-blur-sm shadow-inner">
+            <div className="flex justify-between items-center mb-2.5">
+              <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest block">
+                Real-time Transcription Draft
+              </span>
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+              </span>
+            </div>
+            <div className="max-h-24 overflow-y-auto text-sm text-gray-300 leading-relaxed font-sans scrollbar-thin select-none">
+              {realtimeTranscript}
+              <span className="inline-block w-1.5 h-4 bg-violet-400 animate-pulse ml-1 align-middle" />
+            </div>
+          </div>
+        )}
 
         {/* Real-time controls buttons */}
         <div className="flex flex-col sm:flex-row gap-4 items-center pt-2">

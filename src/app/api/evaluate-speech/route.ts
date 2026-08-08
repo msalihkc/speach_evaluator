@@ -164,6 +164,7 @@ Silence pauses (>1.5s): ${silenceGaps}`
     evaluationReport.wpm = wpm;
     evaluationReport.silenceGaps = silenceGaps;
     evaluationReport.fillerWordCount = fillerWordCount;
+    evaluationReport.transcript = transcriptText;
 
     return NextResponse.json(evaluationReport);
 

@@ -80,8 +80,123 @@ export default function ReportView() {
     wordCount,
     wpm,
     silenceGaps,
-    fillerWordCount
+    fillerWordCount,
+    transcript
   } = currentEvaluation;
+
+  // Helper to render transcript with highlighted filler words and grammar issues
+  const renderHighlightedTranscript = (text: string, corrections: typeof grammarCorrections) => {
+    if (!text) return null;
+
+    const fillersList = ["um", "uh", "like", "you know", "so yeah"];
+    
+    interface Annotation {
+      start: number;
+      end: number;
+      type: "filler" | "grammar";
+      content: string;
+      meta?: {
+        index: number;
+        correction: string;
+        explanation: string;
+      };
+    }
+    
+    const annotations: Annotation[] = [];
+
+    // Find grammar corrections in transcript
+    corrections?.forEach((corr, index) => {
+      const snippet = corr.originalSnippet;
+      if (!snippet) return;
+      
+      const escaped = snippet.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(escaped, "gi");
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        annotations.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          type: "grammar",
+          content: match[0],
+          meta: { index, correction: corr.correctedSnippet, explanation: corr.explanation }
+        });
+      }
+    });
+
+    // Find filler words in transcript
+    fillersList.forEach((filler) => {
+      const escaped = filler.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const isOverlapping = annotations.some(
+          ann => (match!.index >= ann.start && match!.index < ann.end) || 
+                 (match!.index + match![0].length > ann.start && match!.index + match![0].length <= ann.end)
+        );
+        if (!isOverlapping) {
+          annotations.push({
+            start: match.index,
+            end: match.index + match[0].length,
+            type: "filler",
+            content: match[0]
+          });
+        }
+      }
+    });
+
+    annotations.sort((a, b) => a.start - b.start);
+
+    const nonOverlapping: Annotation[] = [];
+    let lastEnd = 0;
+    for (const ann of annotations) {
+      if (ann.start >= lastEnd) {
+        nonOverlapping.push(ann);
+        lastEnd = ann.end;
+      }
+    }
+
+    const result: React.ReactNode[] = [];
+    let currentIdx = 0;
+
+    nonOverlapping.forEach((ann, idx) => {
+      if (ann.start > currentIdx) {
+        result.push(<span key={`text-${idx}`}>{text.substring(currentIdx, ann.start)}</span>);
+      }
+
+      if (ann.type === "grammar") {
+        result.push(
+          <span
+            key={`ann-${idx}`}
+            className="group relative inline-block bg-red-500/10 border border-red-500/30 text-red-400 font-medium px-1.5 py-0.5 rounded cursor-pointer transition-all hover:bg-red-500/20 underline decoration-red-500/40 decoration-2 underline-offset-2"
+          >
+            {ann.content}
+            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-charcoal-900 border border-charcoal-700 text-gray-200 text-xs rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-30 font-normal leading-normal whitespace-normal">
+              <span className="font-bold text-red-400 block mb-1">Grammar correction:</span>
+              <span className="line-through text-gray-500">&ldquo;{ann.content}&rdquo;</span> &rarr; <span className="text-emerald-400 font-semibold">&ldquo;{ann.meta?.correction}&rdquo;</span>
+              <span className="block mt-1.5 border-t border-charcoal-800 pt-1.5 text-gray-400">{ann.meta?.explanation}</span>
+            </span>
+          </span>
+        );
+      } else {
+        result.push(
+          <span
+            key={`ann-${idx}`}
+            className="inline-block bg-amber-500/10 border border-amber-500/25 text-amber-400 px-1.5 py-0.5 rounded font-medium text-xs mx-0.5"
+          >
+            {ann.content}
+          </span>
+        );
+      }
+
+      currentIdx = ann.end;
+    });
+
+    if (currentIdx < text.length) {
+      result.push(<span key="text-end">{text.substring(currentIdx)}</span>);
+    }
+
+    return result;
+  };
 
   // Toggle helper for grammar snippet accordions
   const toggleGrammar = (idx: number) => {
@@ -337,6 +452,35 @@ NATIVE LEVEL REWRITE:
           </div>
         </div>
       </div>
+
+      {/* Speech Transcript Card */}
+      {transcript && (
+        <div className="bg-charcoal-800 rounded-3xl border border-charcoal-700/80 p-6 shadow-xl relative overflow-hidden">
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-violet-600/5 rounded-full blur-2xl pointer-events-none" />
+          
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-5 flex items-center gap-2 border-b border-charcoal-700/60 pb-3">
+            <Mic className="w-4 h-4 text-violet-400" />
+            Speech Transcript & Highlighted Analysis
+          </h3>
+          
+          <div className="bg-charcoal-900/60 border border-charcoal-700/40 rounded-2xl p-6 relative">
+            <p className="text-gray-200 text-base leading-relaxed whitespace-pre-wrap font-sans select-text">
+              {renderHighlightedTranscript(transcript, grammarCorrections)}
+            </p>
+          </div>
+          
+          <div className="flex flex-wrap gap-4 mt-4 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-amber-500/10 border border-amber-500/25" />
+              <span>Filler word (um, uh, like)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-red-500/10 border border-red-500/30" />
+              <span>Grammar adjustment (hover for correction)</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grammar Corrections section */}
       {grammarCorrections && grammarCorrections.length > 0 && (

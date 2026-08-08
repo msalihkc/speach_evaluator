@@ -35,6 +35,7 @@ export interface EvaluationReport {
   wpm?: number;
   silenceGaps?: number;
   fillerWordCount?: number;
+  transcript?: string;
 }
 
 export interface HistoryItem {
