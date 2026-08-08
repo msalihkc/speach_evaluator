@@ -3,9 +3,19 @@ import OpenAI from "openai";
 
 // Optional OpenAI instantiation (it won't crash if API key is missing until it's called)
 const getOpenAIClient = () => {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+  
+  if (openaiKey) {
+    return new OpenAI({ apiKey: openaiKey });
+  }
+  if (groqKey) {
+    return new OpenAI({
+      apiKey: groqKey,
+      baseURL: "https://api.groq.com/openai/v1"
+    });
+  }
+  return null;
 };
 
 // Simple heuristic parser for mock transcribing/filler words/pauses
@@ -60,20 +70,25 @@ export async function POST(request: Request) {
     }
 
     const openai = getOpenAIClient();
+    const isGroq = !process.env.OPENAI_API_KEY && !!process.env.GROQ_API_KEY;
+    const whisperModel = isGroq ? "whisper-large-v3" : "whisper-1";
+    const chatModel = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+
     let transcriptText = "";
     let wordCount = 0;
     let silenceGaps = 0;
     let fillerWordCount = 0;
 
-    if (openai && process.env.OPENAI_API_KEY) {
+    if (openai) {
       try {
         // Prepare file for transcription
         const file = new File([audioFile], "speech.webm", { type: audioFile.type });
         const transcription = await openai.audio.transcriptions.create({
           file: file,
-          model: "whisper-1",
+          model: whisperModel,
           response_format: "verbose_json",
-          timestamp_granularities: ["word"],
+          // Only include timestamp granularities on OpenAI (Groq doesn't support word timestamp arrays)
+          ...(!isGroq ? { timestamp_granularities: ["word"] } : {}),
         }) as unknown as WhisperVerboseResponse;
 
         transcriptText = transcription.text;
@@ -123,12 +138,12 @@ export async function POST(request: Request) {
     // Call LLM for Structured Evaluation
     let evaluationReport: Record<string, unknown> = {};
 
-    if (openai && process.env.OPENAI_API_KEY) {
+    if (openai) {
       try {
         const systemPrompt = "You are an expert language coach and speech evaluator. Analyze a user's spontaneous 2-minute spoken speech transcript along with provided audio timing metrics. Be direct, actionable, and encouraging. Return ONLY a valid JSON object matching the requested schema.";
         
         const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: chatModel,
           messages: [
             { role: "system", content: systemPrompt },
             {
