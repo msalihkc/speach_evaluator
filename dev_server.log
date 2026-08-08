@@ -1,0 +1,18 @@
+
+> speech-app@0.1.0 dev
+> next dev
+
+  ▲ Next.js 15.0.0
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1776ms
+ ○ Compiling / ...
+ ✓ Compiled / in 6.9s (706 modules)
+ GET / 200 in 7860ms
+ ✓ Compiled in 902ms (335 modules)
+ ✓ Compiled in 590ms (688 modules)
+ GET / 200 in 157ms
+ ○ Compiling /api/evaluate-speech ...
+ ✓ Compiled /api/evaluate-speech in 1381ms (846 modules)
+ POST /api/evaluate-speech 200 in 1540ms
